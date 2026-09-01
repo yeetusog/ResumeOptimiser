@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Build outputs
+backend/*.log
+*.log
+
+# Temporary files
+*.tmp
+*.bak
