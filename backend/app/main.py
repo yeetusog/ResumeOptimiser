@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -17,6 +19,8 @@ from .parser import extract_text_from_upload
 from .sanitizer import escape_latex_chars
 
 
+load_dotenv()
+logger = logging.getLogger("resume_optimizer.main")
 SYSTEM_PROMPT = """You are an elite executive resume writer. Return ONLY a valid JSON object matching this structural contract:
 {
   "bullet_points": [
@@ -27,10 +31,15 @@ SYSTEM_PROMPT = """You are an elite executive resume writer. Return ONLY a valid
 Do not include markdown code block syntax, commentary, or LaTeX commands inside the response."""
 
 
+def _cors_origins() -> list[str]:
+    raw = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app = FastAPI(title="Resume Optimizer API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,7 +57,7 @@ class OptimizeRequest(ATSRequest):
 
 
 class CompileRequest(BaseModel):
-    latex: str = Field(..., min_length=1)
+    latex: str = Field(..., min_length=1, max_length=200000)
 
 
 @app.get("/health")
@@ -73,7 +82,7 @@ def ats_score(payload: ATSRequest) -> dict:
 @app.post("/api/optimize")
 async def optimize(payload: OptimizeRequest) -> dict:
     ats = calculate_ats_score(payload.resume_text, payload.jd_text)
-    raw_bullets = await _generate_bullets(payload, ats)
+    generation_source, raw_bullets = await _generate_bullets(payload, ats)
     sanitized_bullets = [escape_latex_chars(bullet) for bullet in raw_bullets[:8]]
     latex_code = render_resume_latex(
         sanitized_bullets,
@@ -82,7 +91,12 @@ async def optimize(payload: OptimizeRequest) -> dict:
         matched_keywords=[escape_latex_chars(value) for value in ats["matched_keywords"][:20]],
         missing_keywords=[escape_latex_chars(value) for value in ats["missing_keywords"][:20]],
     )
-    return {"bullet_points": raw_bullets[:8], "ats": ats, "latex_code": latex_code}
+    return {
+        "bullet_points": raw_bullets[:8],
+        "ats": ats,
+        "latex_code": latex_code,
+        "generation_source": generation_source,
+    }
 
 
 @app.post("/api/compile")
@@ -99,14 +113,20 @@ def compile_resume(payload: CompileRequest) -> Response:
     )
 
 
-async def _generate_bullets(payload: OptimizeRequest, ats: dict[str, Any]) -> list[str]:
+async def _generate_bullets(payload: OptimizeRequest, ats: dict[str, Any]) -> tuple[str, list[str]]:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if api_key:
         try:
-            return await _generate_with_anthropic(payload, ats, api_key)
-        except Exception:
-            pass
-    return _generate_heuristic_bullets(payload, ats)
+            return "anthropic", await _generate_with_anthropic(payload, ats, api_key)
+        except httpx.HTTPError as exc:
+            logger.warning("Anthropic generation failed; using heuristic fallback", extra={"kind": "anthropic_http_error", "detail": str(type(exc).__name__)})
+        except ValueError as exc:
+            logger.warning("Anthropic response schema was invalid; using heuristic fallback", extra={"kind": "anthropic_schema_error", "detail": str(exc)})
+        except Exception as exc:
+            logger.exception("Unexpected Anthropic generation failure; using heuristic fallback")
+    else:
+        logger.info("No ANTHROPIC_API_KEY configured; using heuristic bullet generation")
+    return "heuristic", _generate_heuristic_bullets(payload, ats)
 
 
 async def _generate_with_anthropic(payload: OptimizeRequest, ats: dict[str, Any], api_key: str) -> list[str]:
@@ -117,6 +137,7 @@ async def _generate_with_anthropic(payload: OptimizeRequest, ats: dict[str, Any]
         "matched_keywords": ats["matched_keywords"],
         "missing_keywords": ats["missing_keywords"],
     }
+    model_name = os.getenv("ANTHROPIC_MODEL", "claude-3-7-sonnet-latest")
     async with httpx.AsyncClient(timeout=40) as client:
         response = await client.post(
             "https://api.anthropic.com/v1/messages",
@@ -126,7 +147,7 @@ async def _generate_with_anthropic(payload: OptimizeRequest, ats: dict[str, Any]
                 "content-type": "application/json",
             },
             json={
-                "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
+                "model": model_name,
                 "max_tokens": 800,
                 "temperature": 0.2,
                 "system": SYSTEM_PROMPT,

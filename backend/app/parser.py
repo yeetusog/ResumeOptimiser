@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -9,6 +10,7 @@ from pypdf import PdfReader
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".tex", ".txt"}
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", "10485760"))
 
 
 async def extract_text_from_upload(file: UploadFile) -> str:
@@ -19,6 +21,8 @@ async def extract_text_from_upload(file: UploadFile) -> str:
     content = await file.read()
     if not content:
         raise ValueError("Uploaded file is empty")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"Uploaded file exceeds the {MAX_UPLOAD_BYTES} byte limit")
 
     with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
@@ -43,8 +47,18 @@ def extract_text(path: Path) -> str:
 
 def _extract_pdf(path: Path) -> str:
     reader = PdfReader(str(path))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n".join(page.strip() for page in pages if page.strip())
+    if not reader.pages:
+        raise ValueError("The uploaded PDF is empty or unreadable.")
+
+    pages = []
+    for page in reader.pages:
+        extracted = page.extract_text() or ""
+        pages.append(extracted.strip())
+
+    text = "\n".join(page for page in pages if page)
+    if not text.strip() or len(text.strip()) < 30:
+        raise ValueError("The uploaded PDF appears empty or image-only. Please upload a text-based PDF or another supported file.")
+    return text
 
 
 def _extract_docx(path: Path) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 from typing import Iterable
@@ -7,8 +8,11 @@ from typing import Iterable
 import spacy
 
 
+logger = logging.getLogger("resume_optimizer.ats")
+
 TECH_TERMS = {
     "aws",
+    "aws lambda",
     "azure",
     "docker",
     "kubernetes",
@@ -25,6 +29,9 @@ TECH_TERMS = {
     "redis",
     "graphql",
     "rest",
+    "rest api",
+    "spring boot",
+    "microsoft sql server",
     "ci/cd",
     "terraform",
     "linux",
@@ -34,19 +41,34 @@ TECH_TERMS = {
 }
 
 STOPWORDS = {
-    "experience",
+    "ability",
+    "across",
+    "around",
+    "build",
+    "building",
+    "built",
     "candidate",
+    "collaborate",
+    "collaboration",
+    "company",
+    "culture",
+    "environment",
+    "experience",
+    "excellent",
+    "including",
+    "initiative",
+    "initiatives",
+    "opportunity",
+    "responsibilities",
+    "responsibility",
     "role",
+    "skills",
+    "strong",
     "team",
+    "teams",
+    "using",
     "work",
     "working",
-    "including",
-    "using",
-    "build",
-    "built",
-    "strong",
-    "ability",
-    "skills",
 }
 
 
@@ -55,6 +77,7 @@ def _load_nlp():
     try:
         return spacy.load("en_core_web_sm")
     except OSError:
+        logger.warning("spaCy model 'en_core_web_sm' is unavailable; using a blank deterministic fallback pipeline.")
         return spacy.blank("en")
 
 
@@ -104,13 +127,13 @@ def calculate_ats_score(resume_text: str, jd_text: str) -> dict:
 
 def _fallback_terms(text: str) -> Iterable[str]:
     lowered = text.lower()
-    for phrase in TECH_TERMS:
+    for phrase in sorted(TECH_TERMS, key=len, reverse=True):
         if phrase in lowered:
             yield phrase
 
     for raw in re.findall(r"\b[a-zA-Z][a-zA-Z0-9+./#-]{2,}\b", text):
         value = _clean_token(raw)
-        if value:
+        if value and value not in STOPWORDS:
             yield value
 
 
