@@ -78,8 +78,9 @@ This repository contains a full-stack resume optimization tool. The application 
 - Backend dependencies are listed in `backend/requirements.txt`.
 - Frontend dependencies are managed through `frontend/package.json`.
 - Tectonic must be installed for PDF generation.
-- The API is expected to run on port 8000.
-- The frontend is expected to run on port 5173.
+- The canonical backend API port is 8000.
+- The canonical frontend port is 5173.
+- The app is intended for localhost-only usage unless `CORS_ORIGINS` is explicitly configured for a remote deployment.
 
 ## Important implementation notes
 

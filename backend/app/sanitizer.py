@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 LATEX_REPLACEMENTS = {
+    "\\": r"\textbackslash{}",
     "&": r"\&",
     "%": r"\%",
     "$": r"\$",
@@ -11,6 +12,9 @@ LATEX_REPLACEMENTS = {
     "}": r"\}",
     "~": r"\textasciitilde{}",
     "^": r"\textasciicircum{}",
+    "\n": " ",
+    "\r": " ",
+    "\t": " ",
 }
 
 

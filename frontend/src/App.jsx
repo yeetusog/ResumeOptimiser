@@ -17,7 +17,7 @@ Upload a resume and optimize it against a job description.
 
 function loadStored(key, fallback) {
   try {
-    return localStorage.getItem(key) ?? fallback;
+    return sessionStorage.getItem(key) ?? fallback;
   } catch {
     return fallback;
   }
@@ -37,10 +37,18 @@ export default function App() {
   const [isCompiling, setIsCompiling] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => localStorage.setItem("jdText", jdText), [jdText]);
-  useEffect(() => localStorage.setItem("targetTitle", targetTitle), [targetTitle]);
-  useEffect(() => localStorage.setItem("userProficiencies", proficiencies), [proficiencies]);
-  useEffect(() => localStorage.setItem("latexCode", latexCode), [latexCode]);
+  useEffect(() => {
+    try { sessionStorage.setItem("jdText", jdText); } catch {}
+  }, [jdText]);
+  useEffect(() => {
+    try { sessionStorage.setItem("targetTitle", targetTitle); } catch {}
+  }, [targetTitle]);
+  useEffect(() => {
+    try { sessionStorage.setItem("userProficiencies", proficiencies); } catch {}
+  }, [proficiencies]);
+  useEffect(() => {
+    try { sessionStorage.setItem("latexCode", latexCode); } catch {}
+  }, [latexCode]);
 
   const canScore = useMemo(() => resumeText.trim() && jdText.trim(), [resumeText, jdText]);
 
@@ -115,6 +123,21 @@ export default function App() {
     }
   }
 
+  function clearDraft() {
+    setResumeText("");
+    setJdText("");
+    setTargetTitle("Software Engineer");
+    setProficiencies("");
+    setLatexCode(emptyLatex);
+    setAtsScore(null);
+    setMatchedKeywords([]);
+    setMissingKeywords([]);
+    setError("");
+    try {
+      sessionStorage.clear();
+    } catch {}
+  }
+
   return (
     <main className="min-h-screen bg-paper">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
@@ -144,6 +167,12 @@ export default function App() {
               className="focus-ring rounded bg-ink px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isCompiling ? "Compiling..." : "Download PDF"}
+            </button>
+            <button
+              onClick={clearDraft}
+              className="focus-ring rounded bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-line"
+            >
+              Clear draft
             </button>
           </div>
         </header>
