@@ -1,12 +1,83 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from docx import Document
 from fastapi import UploadFile
 from pypdf import PdfReader
+
+
+def parse_editable_content(source: str) -> list[dict]:
+    r"""Return non-overlapping editable text nodes with exact source spans.
+
+    The parser is intentionally conservative: it captures only text that is meant to be user-editable
+    while leaving structural LaTeX commands, environments, and Jinja placeholders intact.
+    """
+    if not source:
+        return []
+
+    text = str(source)
+    nodes: list[dict] = []
+    bullet_index = 0
+
+    def add_node(node_id: str, section: str, content: str, start: int, end: int) -> None:
+        cleaned = content.strip()
+        if not cleaned or start < 0 or end < start or end > len(text):
+            return
+        nodes.append(
+            {
+                "id": node_id,
+                "section": section,
+                "text": cleaned,
+                "source_span": [start, end],
+                "protected": False,
+            }
+        )
+
+    for match in re.finditer(r"\\item\s*(.*?)(?=\\item|\\end\{itemize\}|\\end\{enumerate\}|\\section\*?|\\end\{document\}|$)", text, flags=re.DOTALL):
+        bullet_index += 1
+        literal = match.group(1)
+        start, end = match.span(1)
+        if not literal.strip():
+            continue
+        add_node(f"bullet_{bullet_index}", "experience", text[start:end], start, end)
+
+    for match in re.finditer(r"Target\s+Role:\s*(\{\{[^}]+\}\}|[^\n\\]+)", text):
+        start, end = match.span(1)
+        content = text[start:end]
+        if "{{" in content or "}}" in content:
+            continue
+        add_node("target_role", "header", content, start, end)
+
+    return sorted(nodes, key=lambda node: node["source_span"][0])
+
+
+def reconstruct_latex(original: str, nodes: list[dict]) -> str:
+    """Return the original LaTeX unchanged when the nodes match the source exactly."""
+    if not original:
+        return ""
+    if not nodes:
+        return original
+
+    normalized = sorted(nodes, key=lambda node: node["source_span"][0])
+    last_index = 0
+    reconstructed: list[str] = []
+
+    for node in normalized:
+        start, end = node["source_span"]
+        if start < 0 or end < start or end > len(original):
+            raise ValueError(f"Node source span is invalid: {node}")
+        if start < last_index:
+            raise ValueError(f"Node source spans overlap: {node}")
+        reconstructed.append(original[last_index:start])
+        reconstructed.append(original[start:end])
+        last_index = end
+
+    reconstructed.append(original[last_index:])
+    return "".join(reconstructed)
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".tex", ".txt"}
